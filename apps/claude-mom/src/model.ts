@@ -17,6 +17,7 @@ export type UpstreamProfile = {
   smallModel: string;
   models: string[];
   contextWindow: number | null;
+  modelWindows?: Record<string, number>;
   /** 模型显示名（上游 `/v1/models` 的 display_name）。 */
   modelNames: Record<string, string>;
   source: UpstreamSource | string;
@@ -98,7 +99,7 @@ export const IMPORT_SOURCES: Array<{ id: UpstreamSource; label: string; detail: 
 ];
 
 export function emptyProfile(): UpstreamProfile {
-  return { id: "", name: "", baseUrl: "", apiKey: "", model: "", smallModel: "", models: [], contextWindow: null, modelNames: {}, source: "manual", sourceId: "" };
+  return { id: "", name: "", baseUrl: "", apiKey: "", model: "", smallModel: "", models: [], contextWindow: null, modelWindows: {}, modelNames: {}, source: "manual", sourceId: "" };
 }
 
 export function hostOf(url: string): string {
@@ -185,4 +186,11 @@ export function templateLabel(template: { build: string; builtAt: number | null 
   const date = new Date(template.builtAt * 1000);
   const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   return `${day} · ${template.build}`;
+}
+
+
+// Replace the fetched map so removed metadata cannot survive a refresh.
+export function fetchedModelWindows(models: UpstreamModel[]): Record<string, number> {
+  return Object.fromEntries(models.filter(m => Number.isSafeInteger(m.contextWindow) && m.contextWindow! > 0)
+    .map(m => [m.id, m.contextWindow!]));
 }

@@ -1927,11 +1927,11 @@ fn write_model_compact_windows(code_dir: &Path, windows: &BTreeMap<String, u64>)
         return Ok(());
     }
     let path = code_dir.join("settings.json");
-    let mut settings: Value = fs::read(&path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .filter(Value::is_object)
-        .unwrap_or_else(|| json!({}));
+    let mut settings: Value = match fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(error) => return Err(error.into()),
+    };
     let Some(object) = settings.as_object_mut() else {
         return Ok(());
     };
@@ -1953,11 +1953,14 @@ fn write_model_compact_windows(code_dir: &Path, windows: &BTreeMap<String, u64>)
 
 /// 按当前网关声明同步一次逐模型窗口；失败不影响启动。
 fn sync_model_compact_windows(root: &Path, config: &ClaudeLocalSettings, upstream: &Upstream) {
-    // 共用 ~/.claude 时不往用户自己的 settings.json 里写东西。
-    if code_share_home(config) {
-        return;
-    }
-    let _ = write_model_compact_windows(&full_code_dir(root), &upstream.model_windows);
+    // The running Code process must see per-model settings in either directory.
+    // Merge only configured IDs; preserve unrelated user settings.
+    let dir = if code_share_home(config) {
+        home_dir().join(".claude")
+    } else {
+        full_code_dir(root)
+    };
+    let _ = write_model_compact_windows(&dir, &upstream.model_windows);
 }
 
 /// 把一个已拼好参数/环境变量的 Command 换成另一个可执行文件（MSIX 别名重试用）。
@@ -2640,6 +2643,10 @@ mod tests {
         assert_eq!(settings["modelSettings"]["other"]["autoCompactWindow"], 300_000);
         assert_eq!(settings["modelSettings"]["relay/gpt-6.1-sol"]["autoCompactWindow"], 1_000_000);
         assert_eq!(settings["modelSettings"]["relay/small"]["autoCompactWindow"], 128_000);
+        fs::write(dir.join("settings.json"), b"{broken").unwrap();
+        assert!(write_model_compact_windows(&dir, &windows).is_err());
+        assert_eq!(fs::read(dir.join("settings.json")).unwrap(), b"{broken");
+
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { claudeState, emptyProfile, formatWindow, hostOf, normalizeModels, profileProblem, setupSteps, templateLabel, type ClaudeStatus } from "./model.ts";
+import { claudeState, fetchedModelWindows, emptyProfile, formatWindow, hostOf, normalizeModels, profileProblem, setupSteps, templateLabel, type ClaudeStatus } from "./model.ts";
 
 const status = (patch: Partial<ClaudeStatus> = {}): ClaudeStatus => ({
   supported: true, sourceApp: "", version: "1.0", claudeRunning: false, running: false, connected: false,
@@ -62,4 +62,11 @@ test("recorded template versions are labelled by build date and id", () => {
   const label = templateLabel({ build: "a4ced7f85b", builtAt: 1794603257 });
   assert.match(label, /^2026-11-1[34] · a4ced7f85b$/);
   assert.equal(templateLabel({ build: "x1", builtAt: null }), "x1");
+});
+
+test("fetched windows preserve full IDs and omit invalid metadata", () => {
+  const make = (id: string, contextWindow: number | null) => ({ id, contextWindow, displayName: null });
+  assert.deepEqual(fetchedModelWindows([make("a/shared", 1048576), make("b/shared", 131072), make("unknown", null), make("bad", 0)]),
+    { "a/shared": 1048576, "b/shared": 131072 });
+  assert.deepEqual(fetchedModelWindows([make("a/shared", null)]), {});
 });

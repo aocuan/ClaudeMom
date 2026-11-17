@@ -147,10 +147,9 @@ pub async fn claude_mom_import(source: String) -> CommandResult<BookPayload> {
                 if profile.model.is_empty() {
                     profile.model = profile.models.first().cloned().unwrap_or_default();
                 }
-                profile.context_window = models
-                    .iter()
-                    .find(|model| model.id == profile.model)
-                    .and_then(|model| model.context_window);
+                profile.model_windows = models.iter()
+                    .filter_map(|model| Some((model.id.clone(), model.context_window?)))
+                    .collect();
             }
             Err(_) => unreachable.push(profile.name.clone()),
         }

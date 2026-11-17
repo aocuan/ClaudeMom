@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Check, ChevronDown, Download, Eye, EyeOff, Loader2, Play, Plus, RefreshCw, ShieldCheck, Square, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { IMPORT_SOURCES, SOURCE_LABELS, WINDOW_PRESETS, claudeState, emptyProfile, formatWindow, hostOf, isOk, modelLabel, normalizeModels, profileProblem, setupSteps, type ClaudeConfig, type ClaudeStatus, type CommandResult, type UpstreamBook, type UpstreamModel, type UpstreamProfile, templateLabel } from "./model";
+import { IMPORT_SOURCES, SOURCE_LABELS, WINDOW_PRESETS, fetchedModelWindows, claudeState, emptyProfile, formatWindow, hostOf, isOk, modelLabel, normalizeModels, profileProblem, setupSteps, type ClaudeConfig, type ClaudeStatus, type CommandResult, type UpstreamBook, type UpstreamModel, type UpstreamProfile, templateLabel } from "./model";
 import { checkForUpdate, currentVersion, installUpdate, type UpdateState } from "./updates";
 
 type Tab = "upstream" | "claude";
@@ -195,9 +195,9 @@ export function ClaudeMomApp() {
       setDraft((current) => {
         if (!current) return current;
         const model = current.model || ids[0] || "";
-        const window = result.models.find((item) => item.id === model)?.contextWindow ?? current.contextWindow;
+        const modelWindows = fetchedModelWindows(result.models);
         const names = Object.fromEntries(result.models.filter((item) => item.displayName).map((item) => [item.id, item.displayName as string]));
-        return { ...current, models: normalizeModels(ids, model), model, contextWindow: window ?? null, modelNames: { ...current.modelNames, ...names } };
+        return { ...current, models: normalizeModels(ids, model), model, modelWindows, modelNames: { ...current.modelNames, ...names } };
       });
       say(result.message);
     });
@@ -478,7 +478,7 @@ function UpstreamEditor({ draft, active, dirty, busy, onChange, onSave, onActiva
               {options.map((model) => <option key={model} value={model}>{modelLabel(draft, model)}</option>)}
             </select>
           </Field>
-          <Field label="上下文窗口">
+          <Field label="未声明模型的回退窗口" hint={draft.modelWindows?.[draft.model] ? `当前模型由上游声明：${draft.modelWindows[draft.model].toLocaleString()} tokens，优先于回退值。刷新模型列表可更新。` : "上游未声明当前模型窗口时使用；不改变供应商的实际限制。"}>
             <select onChange={(event) => set({ contextWindow: event.currentTarget.value === "" ? null : Number(event.currentTarget.value) })} value={draft.contextWindow == null ? "" : String(draft.contextWindow)}>
               {WINDOW_PRESETS.map((item) => <option key={item.label} value={item.value == null ? "" : String(item.value)}>{item.label}</option>)}
               {!preset && draft.contextWindow ? <option value={String(draft.contextWindow)}>{formatWindow(draft.contextWindow)}</option> : null}

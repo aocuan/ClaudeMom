@@ -38,6 +38,8 @@ pub struct UpstreamProfile {
     pub small_model: String,
     pub models: Vec<String>,
     pub context_window: Option<u64>,
+    /// 上游逐模型窗口；context_window 仅作为未声明模型的回退。
+    pub model_windows: BTreeMap<String, u64>,
     /// 模型显示名（上游 `/v1/models` 的 `display_name`）。Magpie 的路由组 id 不可读，全靠它。
     pub model_names: BTreeMap<String, String>,
     /// `manual` / `ccswitch` / `magpie` / `codexpp`。
@@ -61,10 +63,14 @@ impl UpstreamProfile {
             .filter(|value| !value.is_empty())
             .map(str::to_string)
             .unwrap_or_else(|| model.clone());
-        let window = self.context_window.filter(|window| *window > 0);
-        let model_windows = window
-            .map(|window| models.iter().map(|id| (id.clone(), window)).collect())
-            .unwrap_or_default();
+        let fallback = self.context_window.filter(|window| *window > 0);
+        let mut model_windows: BTreeMap<String, u64> = BTreeMap::new();
+        for id in models.iter().chain(std::iter::once(&small_model)) {
+            if let Some(window) = self.model_windows.get(id).copied().filter(|v| *v > 0).or(fallback) {
+                model_windows.insert(id.clone(), window);
+            }
+        }
+        let window = model_windows.get(&model).copied().or(fallback);
         let model_names = models
             .iter()
             .map(|id| {
@@ -153,6 +159,7 @@ impl UpstreamBook {
                         }
                     }
                     known.model_names.extend(profile.model_names);
+                    known.model_windows = profile.model_windows;
                     updated += 1;
                 }
                 None => {
@@ -739,5 +746,40 @@ mod tests {
             ]
         );
         assert!(parse_models("{}").is_err());
+    }
+}
+
+#[cfg(test)]
+mod context_window_regression {
+    use super::*;
+    #[test]
+    fn per_model_windows_survive_save_switch_and_reimport() {
+        let mut profile = UpstreamProfile {
+            model: "large".into(), small_model: "small".into(),
+            models: vec!["large".into(), "small".into(), "unknown".into()],
+            context_window: Some(250_000),
+            model_windows: BTreeMap::from([("large".into(), 1_048_576), ("small".into(), 131_072)]),
+            source: SOURCE_MAGPIE.into(), source_id: "gateway".into(),
+            ..Default::default()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("book.json");
+        let mut book = UpstreamBook::default();
+        book.upsert(profile.clone());
+        save_book(&path, &book).unwrap();
+        let mut book = load_book(&path).unwrap();
+        let u = book.active().unwrap().to_upstream();
+        assert_eq!(u.default_window, Some(1_048_576));
+        assert_eq!(u.model_windows["small"], 131_072);
+        assert_eq!(u.model_windows["unknown"], 250_000);
+        profile.model = "small".into();
+        assert_eq!(profile.to_upstream().default_window, Some(131_072));
+        profile.model_windows = BTreeMap::from([("large".into(), 900_000)]);
+        book.merge_imported(vec![profile]);
+        let u = book.active().unwrap().to_upstream();
+        assert_eq!(u.default_window, Some(900_000));
+        assert_eq!(u.model_windows["small"], 250_000);
+        let legacy: UpstreamProfile = serde_json::from_str(r#"{"model":"old","contextWindow":200000}"#).unwrap();
+        assert_eq!(legacy.to_upstream().default_window, Some(200_000));
     }
 }
