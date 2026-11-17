@@ -281,7 +281,7 @@ export function ClaudeMomApp() {
                 ) : null}
               </div>
             ))}
-            {status?.needsRestart ? <div className="cm-banner" data-tone="info"><span>设置变了：完全退出 Claude 后重新启动生效。</span></div> : null}
+            {status?.needsRestart ? <div className="cm-banner" data-tone="info"><span>{status.localProcess && !status.running ? "本地服务已停止。完全退出 Claude 后，从这里重新启动。" : "请完全退出 Claude，再从这里启动以应用当前设置。"}</span></div> : null}
             {status?.warning && !steps.length ? <div className="cm-banner"><span>{status.warning}</span></div> : null}
           </div>
         ) : null}

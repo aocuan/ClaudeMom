@@ -459,6 +459,7 @@ test("upstream fetches share a bounded, reused connection pool through the upstr
     key: fs.readFileSync(path.join(here, "ca/server.key")),
     cert: fs.readFileSync(path.join(here, "ca/server.crt")),
   }, async (req, res) => {
+    if (req.url.endsWith("/stalled.js")) return;
     await delay(20);
     res.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" });
     res.end(`// ${req.url}`);
@@ -501,6 +502,10 @@ test("upstream fetches share a bounded, reused connection pool through the upstr
     assert.equal(connects.length, opened, "之后的请求复用已有连接，不再新开隧道");
     // 同一条复用的连接上跑过几十个请求，不能每次都往 socket 上叠监听器（#16 看到过这个警告）。
     assert.equal(instance.output().includes("MaxListenersExceededWarning"), false, instance.output());
+    const stalled = await fetchAsset("stalled");
+    assert.equal(stalled.status, 502);
+    assert.match(stalled.bytes.toString(), /timeout/);
+    assert.equal((await fetchAsset("after-timeout")).status, 200);
   } finally {
     await stop(instance);
     upstreamProxy.closeAllConnections();
@@ -573,6 +578,28 @@ test("unpacked ion-dist directory is served when the Claude build ships no ASAR"
   } finally {
     await stop(instance);
   }
+});
+
+test("recorded upgrade notices stay on the recorded model, not the configured gateway models", async () => {
+  const dir = path.join(root, "pool-picker-runtime");
+  fs.cpSync(path.join(root, "runtime"), dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "mock", ".codex-plus-template"), "");
+  const official = { id: "recorded-only", disabled: true, selection_notice: { cta: { intent: "upgrade" } } };
+  fs.writeFileSync(path.join(dir, "mock", "bootstrap.json"), JSON.stringify({
+    model_selector_config: [{ id: "chat", models: [official, { ...official, id: modelIds[0] }] }],
+  }));
+  const instance = await start({ CLAUDE_LOCAL_HIDE_UNROUTED_MODELS: "0" }, dir);
+  try {
+    const data = (await request(instance, "/edge-api/bootstrap", { host: "claude.ai" })).json;
+    const entries = data.model_selector_config.find(s => s.id === "chat").models;
+    assert.deepEqual(entries.find(m => m.id === official.id), official);
+    for (const id of modelIds) {
+      const matches = entries.filter(m => m.id === id);
+      assert.equal(matches.length, 1);
+      assert.equal(matches[0].disabled, false);
+      assert.equal(matches[0].selection_notice, undefined);
+    }
+  } finally { await stop(instance); }
 });
 
 test("installed template turns on Cowork and uses the classic home unless the new home is chosen", async () => {

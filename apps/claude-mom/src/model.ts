@@ -144,6 +144,7 @@ export function claudeState(status: ClaudeStatus | null, busy: string | null): {
   if (!status) return { text: "正在检测 Claude…", tone: "busy" };
   if (!status.supported) return { text: "没有找到 Claude Desktop", tone: "warn" };
   if (status.connected) return { text: "已连接", tone: "ok" };
+  if (status.claudeRunning && status.localProcess && !status.running) return { text: "本地服务已停止", tone: "warn" };
   if (status.claudeRunning && status.localProcess) return { text: "运行中", tone: "ok" };
   if (status.claudeRunning) return { text: "Claude 已打开，但没有经 ClaudeMom 启动", tone: "warn" };
   if (status.running) return { text: "本地服务已就绪", tone: "ok" };

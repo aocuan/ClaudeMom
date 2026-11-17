@@ -734,29 +734,15 @@ function mergePoolModels(j) {
     }
   }
   if (Array.isArray(j.model_selector_config)) {
+    // Only configured upstream IDs belong to the gateway. Use the same catalog as
+    // the live selector endpoint; a recorded model's upgrade CTA is not portable.
+    const pool = modelSelectors(runtime).model_selector_config[0].models;
+    const byId = new Map(pool.map((entry) => [entry.id, entry]));
     for (const sel of j.model_selector_config) {
       if (!Array.isArray(sel?.models)) continue;
-      const seen = new Set(sel.models.map((m) => m?.id));
-      const tpl = sel.models[0] ?? {};
-      for (const entry of sel.models) {
-        if (entry && runtime.models.includes(entry.id)) {
-          entry.hard_limit = modelWindow(runtime, entry.id);
-          entry.context_window = modelWindow(runtime, entry.id);
-          entry.runtime = { max_input_tokens: modelWindow(runtime, entry.id) };
-        }
-      }
-      for (const id of ids) {
-        if (!seen.has(id)) sel.models.push({
-          ...tpl,
-          id,
-          name: friendlyName(id),
-          short_name: friendlyName(id),
-          description: friendlyDescription(id),
-          hard_limit: modelWindow(runtime, id),
-          context_window: modelWindow(runtime, id),
-          runtime: { max_input_tokens: modelWindow(runtime, id) },
-        });
-      }
+      const seen = new Set(sel.models.map((entry) => entry?.id));
+      sel.models = sel.models.map((entry) => byId.get(entry?.id) ?? entry);
+      sel.models.push(...pool.filter((entry) => !seen.has(entry.id)));
     }
   }
   if (Array.isArray(j.model_selector_state)) {
@@ -1971,8 +1957,15 @@ function proxyUpstream(req, res, url) {
       });
     },
   );
-  upstreamReq.on("timeout", () => upstreamReq.destroy(new Error("upstream timeout")));
-  upstreamReq.on("error", (err) => {
+  // Abort the request without injecting an Error into a potentially detached
+  // pooled TLS socket. Report timeout through the existing request fallback.
+  let timedOut = false;
+  upstreamReq.on("timeout", () => {
+    timedOut = true;
+    upstreamReq.destroy();
+  });
+  upstreamReq.on("error", (cause) => {
+    const err = timedOut ? new Error("upstream timeout") : cause;
     if (res.headersSent) {
       // 已经开始转发了，没法再换成兜底响应；断开让客户端知道没收全。
       log(`UPSTREAM FAIL ${url.pathname} (mid-stream): ${err.message}`);
